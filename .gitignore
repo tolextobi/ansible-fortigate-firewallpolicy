@@ -1,0 +1,16 @@
+# Logs
+logs/
+*.log
+
+# Cache
+cache/
+
+# Ansible retry files
+*.retry
+
+# Secrets
+*.vault
+.env
+
+# Python
+__pycache__/
