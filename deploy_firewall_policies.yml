@@ -1,0 +1,163 @@
+---
+- name: Deploy Firewall Policies (Anonymized Lab)
+  hosts: fortigate
+  connection: httpapi
+  gather_facts: false
+
+  collections:
+    - fortinet.fortios
+
+  vars:
+    vdom: "root"
+
+    ansible_httpapi_use_ssl: true
+    ansible_httpapi_validate_certs: false
+    ansible_httpapi_port: 443
+
+    ansible_httpapi_session_key:
+      access_token: "{{ lookup('env', 'FORTIOS_ACCESS_TOKEN') }}"
+
+    firewall_policies:
+
+      # ─────────────────────────────
+      # F2 – Core Policies
+      # ─────────────────────────────
+      - id: 200
+        name: "F2_allow_app_service"
+        srcintf: "internal"
+        dstintf: "server_net"
+        srcaddr: ["CLIENT_NET"]
+        dstaddr: ["APP_SERVER"]
+        service: ["HTTPS"]
+        action: "accept"
+        after: 16
+
+      - id: 201
+        name: "F2_allow_reverse_traffic"
+        srcintf: "server_net"
+        dstintf: "internal"
+        srcaddr: ["APP_SERVER"]
+        dstaddr: ["CLIENT_NET"]
+        service: ["HTTPS"]
+        action: "accept"
+        after: 200
+
+      - id: 202
+        name: "F2_allow_dhcp_icmp"
+        srcintf: "any"
+        dstintf: "infra"
+        srcaddr: ["all"]
+        dstaddr: ["all"]
+        service: ["DHCP", "PING"]
+        action: "accept"
+        after: 201
+
+      - id: 203
+        name: "F2_allow_internal_services"
+        srcintf: "internal"
+        dstintf: "infra"
+        srcaddr: ["CLIENT_NET"]
+        dstaddr: ["INFRA_NET"]
+        service: ["LDAP", "NTP"]
+        action: "accept"
+        after: 202
+
+      # ─────────────────────────────
+      # F25 – Special Use Cases
+      # ─────────────────────────────
+      - id: 1250
+        name: "F25_allow_internal_resources"
+        srcintf: "internal"
+        dstintf: "infra"
+        srcaddr: ["CLIENT_GROUP_A"]
+        dstaddr: ["INTERNAL_SERVICES"]
+        service: ["ALL"]
+        action: "accept"
+        after: 203
+
+      - id: 1251
+        name: "F25_allow_external_https"
+        srcintf: "internal"
+        dstintf: "wan"
+        srcaddr: ["CLIENT_GROUP_A"]
+        dstaddr: ["all"]
+        service: ["HTTPS"]
+        action: "accept"
+        after: 1250
+
+      - id: 1255
+        name: "F25_deny_all_remaining"
+        srcintf: "internal"
+        dstintf: "wan"
+        srcaddr: ["CLIENT_GROUP_A"]
+        dstaddr: ["all"]
+        service: ["ALL"]
+        action: "deny"
+        after: 1251
+
+      # ─────────────────────────────
+      # F3 – General Access
+      # ─────────────────────────────
+      - id: 300
+        name: "F3_allow_web"
+        srcintf: "internal"
+        dstintf: "wan"
+        srcaddr: ["CLIENT_NET"]
+        dstaddr: ["all"]
+        service: ["HTTP", "HTTPS"]
+        action: "accept"
+        after: 1255
+
+      - id: 301
+        name: "F3_allow_directory_services"
+        srcintf: "internal"
+        dstintf: "infra"
+        srcaddr: ["CLIENT_NET"]
+        dstaddr: ["DIRECTORY_SERVERS"]
+        service: ["LDAP", "KERBEROS"]
+        action: "accept"
+        after: 300
+
+      # ─────────────────────────────
+      # F4 – Catch-All
+      # ─────────────────────────────
+      - id: 400
+        name: "F4_catch_all_out"
+        srcintf: "internal"
+        dstintf: "wan"
+        srcaddr: ["CLIENT_NET"]
+        dstaddr: ["all"]
+        service: ["ALL"]
+        action: "deny"
+        after: 301
+
+  tasks:
+
+    - name: Create firewall policies
+      fortinet.fortios.fortios_firewall_policy:
+        vdom: "{{ vdom }}"
+        state: present
+        firewall_policy:
+          policyid: "{{ item.id }}"
+          name: "{{ item.name }}"
+          srcintf:
+            - name: "{{ item.srcintf }}"
+          dstintf:
+            - name: "{{ item.dstintf }}"
+          action: "{{ item.action }}"
+          srcaddr:
+            - name: "{{ item.srcaddr[0] }}"
+          dstaddr:
+            - name: "{{ item.dstaddr[0] }}"
+          schedule: "always"
+          service:
+            - name: "{{ item.service[0] }}"
+      loop: "{{ firewall_policies }}"
+
+    - name: Order firewall policies
+      fortinet.fortios.fortios_firewall_policy:
+        vdom: "{{ vdom }}"
+        action: move
+        self: "{{ item.id }}"
+        after: "{{ item.after }}"
+      loop: "{{ firewall_policies }}"
